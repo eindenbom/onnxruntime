@@ -103,21 +103,21 @@ Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
   int word_embedding_length = static_cast<int>(inputs.word_embedding->Shape()[0]);
   int position_embedding_length = static_cast<int>(inputs.position_embedding->Shape()[0]);
 
-  //
-  // TODO(kreeger): Add some comment about distll-bert allowing no segment embeddings.
-  //
+  bool has_segment_embedding = inputs.segment_embedding != nullptr;
+
+  // Segment inputs are optional and nullptr if this model is distill-bert:
   int segment_embedding_length =
-    (nullptr == inputs.segment_embedding) ? 0 : static_cast<int>(inputs.segment_embedding->Shape()[0]);
+    has_segment_embedding ? static_cast<int>(inputs.segment_embedding->Shape()[0]) : 0;
 
   const int32_t* input_ids_data = inputs.input_ids->template Data<int32_t>();
   const int32_t* segment_ids_data =
-    (nullptr == inputs.segment_ids) ? nullptr : inputs.segment_ids->template Data<int32_t>();
+    has_segment_embedding ? inputs.segment_ids->template Data<int32_t>() : nullptr;
 
   // TODO - need to specify non-float32 here.
   const T* word_embedding_data = inputs.word_embedding->template Data<T>();
   const T* position_embedding_data = inputs.position_embedding->template Data<T>();
   const T* segment_embedding_data =
-    (nullptr == inputs.segment_embedding) ? nullptr : inputs.segment_embedding->template Data<T>();
+    has_segment_embedding ? inputs.segment_embedding->template Data<T>() : nullptr;
   const T* gamma_data = inputs.gamma->template Data<T>();
   const T* beta_data = inputs.beta->template Data<T>();
   T* output_data = output->template MutableData<T>();
