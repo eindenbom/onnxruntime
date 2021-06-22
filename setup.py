@@ -128,11 +128,11 @@ try:
                         f.write('_{} = CDLL("{}", mode=RTLD_GLOBAL)\n'.format(library.split('.')[0], library))
 
         def run(self):
-#            if is_manylinux:
-#                source = 'onnxruntime/capi/onnxruntime_pybind11_state.so'
-#                dest = 'onnxruntime/capi/onnxruntime_pybind11_state_manylinux1.so'
-#                logger.info('copying %s -> %s', source, dest)
-#                copyfile(source, dest)
+            if is_manylinux:
+                source = 'onnxruntime/capi/onnxruntime_pybind11_state.so'
+                dest = 'onnxruntime/capi/onnxruntime_pybind11_state_manylinux1.so'
+                logger.info('copying %s -> %s', source, dest)
+                copyfile(source, dest)
 #                result = subprocess.run(['patchelf', '--print-needed', dest], check=True, stdout=subprocess.PIPE, universal_newlines=True)
 #                dependencies = ['librccl.so', 'libamdhip64.so', 'librocblas.so', 'libMIOpen.so', 'libhsa-runtime64.so', 'libhsakmt.so']
 #                to_preload = []
