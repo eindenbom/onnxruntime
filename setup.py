@@ -128,39 +128,39 @@ try:
                         f.write('_{} = CDLL("{}", mode=RTLD_GLOBAL)\n'.format(library.split('.')[0], library))
 
         def run(self):
-            if is_manylinux:
-                source = 'onnxruntime/capi/onnxruntime_pybind11_state.so'
-                dest = 'onnxruntime/capi/onnxruntime_pybind11_state_manylinux1.so'
-                logger.info('copying %s -> %s', source, dest)
-                copyfile(source, dest)
-                result = subprocess.run(['patchelf', '--print-needed', dest], check=True, stdout=subprocess.PIPE, universal_newlines=True)
-                dependencies = ['librccl.so', 'libamdhip64.so', 'librocblas.so', 'libMIOpen.so', 'libhsa-runtime64.so', 'libhsakmt.so']
-                to_preload = []
-                args = ['patchelf', '--debug']
-                for line in result.stdout.split('\n'):
-                    for dependency in dependencies:
-                        if dependency in line:
-                            to_preload.append(line)
-                            args.extend(['--remove-needed', line])
-                args.append(dest)
-                if len(args) > 3:
-                    subprocess.run(args, check=True, stdout=subprocess.PIPE)
-
-                dest = 'onnxruntime/capi/libonnxruntime_providers_cuda.so'
-                if path.isfile(dest):
-                    result = subprocess.run(['patchelf', '--print-needed', dest], check=True, stdout=subprocess.PIPE, universal_newlines=True)
-                    cuda_dependencies = ['libcublas.so', 'libcublasLt.so', 'libcudnn.so', 'libcudart.so', 'libcurand.so', 'libcufft.so', 'libnvToolsExt.so']
-                    args = ['patchelf', '--debug']
-                    for line in result.stdout.split('\n'):
-                        for dependency in cuda_dependencies:
-                            if dependency in line:
-                                if not dependency in to_preload:
-                                    to_preload.append(line)
-                                args.extend(['--remove-needed', line])
-                    args.append(dest)
-                    if len(args) > 3:
-                        subprocess.run(args, check=True, stdout=subprocess.PIPE)
-                    self._rewrite_ld_preload(to_preload)
+#            if is_manylinux:
+#                source = 'onnxruntime/capi/onnxruntime_pybind11_state.so'
+#                dest = 'onnxruntime/capi/onnxruntime_pybind11_state_manylinux1.so'
+#                logger.info('copying %s -> %s', source, dest)
+#                copyfile(source, dest)
+#                result = subprocess.run(['patchelf', '--print-needed', dest], check=True, stdout=subprocess.PIPE, universal_newlines=True)
+#                dependencies = ['librccl.so', 'libamdhip64.so', 'librocblas.so', 'libMIOpen.so', 'libhsa-runtime64.so', 'libhsakmt.so']
+#                to_preload = []
+#                args = ['patchelf', '--debug']
+#                for line in result.stdout.split('\n'):
+#                    for dependency in dependencies:
+#                        if dependency in line:
+#                            to_preload.append(line)
+#                            args.extend(['--remove-needed', line])
+#                args.append(dest)
+#                if len(args) > 3:
+#                    subprocess.run(args, check=True, stdout=subprocess.PIPE)
+#
+#                dest = 'onnxruntime/capi/libonnxruntime_providers_cuda.so'
+#                if path.isfile(dest):
+#                    result = subprocess.run(['patchelf', '--print-needed', dest], check=True, stdout=subprocess.PIPE, universal_newlines=True)
+#                    cuda_dependencies = ['libcublas.so', 'libcublasLt.so', 'libcudnn.so', 'libcudart.so', 'libcurand.so', 'libcufft.so', 'libnvToolsExt.so']
+#                    args = ['patchelf', '--debug']
+#                    for line in result.stdout.split('\n'):
+#                        for dependency in cuda_dependencies:
+#                            if dependency in line:
+#                                if not dependency in to_preload:
+#                                    to_preload.append(line)
+#                                args.extend(['--remove-needed', line])
+#                    args.append(dest)
+#                    if len(args) > 3:
+#                        subprocess.run(args, check=True, stdout=subprocess.PIPE)
+#                    self._rewrite_ld_preload(to_preload)
             _bdist_wheel.run(self)
             if is_manylinux:
                 file = glob(path.join(self.dist_dir, '*linux*.whl'))[0]
