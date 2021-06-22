@@ -65,7 +65,19 @@ EmbedLayerNorm<T>::Inputs::Inputs(const Tensor* input_ids,
     , segment_embedding(segment_embedding)
     , gamma(gamma)
     , beta(beta)
-    , mask(mask) {}
+    , mask(mask) {
+  const auto& input_dims = input_ids->Shape().GetDims();
+
+  batch_size = static_cast<int>(input_dims[0]);
+  sequence_size = static_cast<int>(input_dims[1]);
+  hidden_size = static_cast<int>(word_embedding->Shape()[1]);
+
+  has_segment_embedding = segment_embedding != nullptr;
+
+  word_embedding_length = static_cast<int>(word_embedding->Shape()[0]);
+  position_embedding_length = static_cast<int>(position_embedding->Shape()[0]);
+  segment_embedding_length = has_segment_embedding ? static_cast<int>(segment_embedding->Shape()[0]) : 0;
+}
 
 template <typename T>
 Status EmbedLayerNorm<T>::Compute(OpKernelContext* context) const {
@@ -88,36 +100,23 @@ Status EmbedLayerNorm<T>::Compute(OpKernelContext* context) const {
 template <typename T>
 Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
                                           const Inputs& inputs) const {
-  const auto& input_dims = inputs.input_ids->Shape().GetDims();
-  int64_t hidden_size = inputs.word_embedding->Shape()[1];
-
-  TensorShape output_shape({input_dims[0], input_dims[1], hidden_size});
-  Tensor* output = context->Output(0, output_shape);
-
-  TensorShape mask_index_shape({input_dims[0]});
-  Tensor* mask_index = context->Output(1, mask_index_shape);
-
-  int batch_size = static_cast<int>(input_dims[0]);
-  int sequence_length = static_cast<int>(input_dims[1]);
-
-  int word_embedding_length = static_cast<int>(inputs.word_embedding->Shape()[0]);
-  int position_embedding_length = static_cast<int>(inputs.position_embedding->Shape()[0]);
-
-  bool has_segment_embedding = inputs.segment_embedding != nullptr;
-
-  // Segment inputs are optional and nullptr if this model is distill-bert:
-  int segment_embedding_length =
-    has_segment_embedding ? static_cast<int>(inputs.segment_embedding->Shape()[0]) : 0;
-
   const int32_t* input_ids_data = inputs.input_ids->template Data<int32_t>();
   const int32_t* segment_ids_data =
-    has_segment_embedding ? inputs.segment_ids->template Data<int32_t>() : nullptr;
+    inputs.has_segment_embedding ? inputs.segment_ids->template Data<int32_t>() : nullptr;
 
+  // Request outputs:
+  TensorShape output_shape({inputs.batch_size, inputs.sequence_size, inputs.hidden_size});
+  Tensor* output = context->Output(0, output_shape);
+
+  TensorShape mask_index_shape({inputs.batch_size});
+  Tensor* mask_index = context->Output(1, mask_index_shape);
+
+  // TODO - helper method with type?
   // TODO - need to specify non-float32 here.
   const T* word_embedding_data = inputs.word_embedding->template Data<T>();
   const T* position_embedding_data = inputs.position_embedding->template Data<T>();
   const T* segment_embedding_data =
-    has_segment_embedding ? inputs.segment_embedding->template Data<T>() : nullptr;
+    inputs.has_segment_embedding ? inputs.segment_embedding->template Data<T>() : nullptr;
   const T* gamma_data = inputs.gamma->template Data<T>();
   const T* beta_data = inputs.beta->template Data<T>();
   T* output_data = output->template MutableData<T>();
@@ -126,22 +125,24 @@ Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
   {
     std::atomic_bool failed{false};
 
-    int n = batch_size * sequence_length;
-    concurrency::ThreadPool::TryBatchParallelFor(context->GetOperatorThreadPool(), n, [=, &failed](ptrdiff_t index) {
+  int hidden_size = inputs.hidden_size;
+    int n = inputs.batch_size * inputs.sequence_size;
+    concurrency::ThreadPool::TryBatchParallelFor(
+        context->GetOperatorThreadPool(), n, [=, &failed](ptrdiff_t index) {
       int word_col_index = input_ids_data[index];
-      if (word_col_index < 0 || word_col_index >= word_embedding_length) {
+      if (word_col_index < 0 || word_col_index >= inputs.word_embedding_length) {
         failed.store(true, std::memory_order_release);
         return;
       }
-      int position_col_index = index % sequence_length;
-      if (position_col_index >= position_embedding_length) {
+      int position_col_index = index % inputs.sequence_size;
+      if (position_col_index >= inputs.position_embedding_length) {
         failed.store(true, std::memory_order_release);
         return;
       }
       int segment_col_index = 0;
       if (nullptr != segment_ids_data) {
         segment_col_index = segment_ids_data[index];
-        if (segment_col_index < 0 || segment_col_index >= segment_embedding_length) {
+        if (segment_col_index < 0 || segment_col_index >= inputs.segment_embedding_length) {
           failed.store(true, std::memory_order_release);
           return;
         }
@@ -149,24 +150,29 @@ Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
 
       T* y = output_data + index * hidden_size;
       const T* input_word_embedding = word_embedding_data + word_col_index * hidden_size;
-      const T* input_position_embedding = position_embedding_data + position_col_index * hidden_size;
-      const T* input_segment_embedding = (nullptr == segment_embedding_data) ? nullptr : segment_embedding_data + segment_col_index * hidden_size;
+      const T* input_position_embedding =
+          position_embedding_data + position_col_index * hidden_size;
+      const T* input_segment_embedding =
+          (inputs.has_segment_embedding) ? segment_embedding_data + segment_col_index * hidden_size : nullptr;
 
       T sum = static_cast<T>(0);
       for (int i = 0; i < hidden_size; i++) {
         T subtotal = input_word_embedding[i] + input_position_embedding[i];
-        if (nullptr != segment_embedding_data)
+        if (inputs.has_segment_embedding) {
           subtotal += input_segment_embedding[i];
+        }
         y[i] = subtotal;
         sum += subtotal;
       }
       T mean = sum / hidden_size;
       sum = 0;
+
       for (int i = 0; i < hidden_size; i++) {
         T a = y[i] - mean;
         y[i] = a;
         sum += a * a;
       }
+
       T e = sqrt(sum / hidden_size + static_cast<T>(epsilon_));
       for (int i = 0; i < hidden_size; i++) {
         y[i] = y[i] / e * gamma_data[i] + beta_data[i];
@@ -181,13 +187,14 @@ Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
   // Calculate mask
   if (nullptr != inputs.mask) {
     const int32_t* mask_data = inputs.mask->template Data<int32_t>();
-    for (int b = 0; b < batch_size; b++) {
-      mask_index->template MutableData<int32_t>()[b] = static_cast<int32_t>(std::count_if(mask_data + (b * sequence_length),
-                                                                                          mask_data + (b * sequence_length) + sequence_length,
-                                                                                          [](int v) { return v == 1; }));
+    for (int b = 0; b < inputs.batch_size; b++) {
+      mask_index->template MutableData<int32_t>()[b] =
+          static_cast<int32_t>(std::count_if(mask_data + (b * inputs.sequence_size),
+                                             mask_data + (b * inputs.sequence_size) + inputs.sequence_size,
+                                             [](int v) { return v == 1; }));
     }
   } else {
-    memset(mask_index->template MutableData<int32_t>(), 0, batch_size * sizeof(int32_t));
+    memset(mask_index->template MutableData<int32_t>(), 0, inputs.batch_size * sizeof(int32_t));
   }
 
   return Status::OK();

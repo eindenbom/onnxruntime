@@ -36,6 +36,14 @@ class EmbedLayerNorm : public OpKernel {
     const Tensor* gamma;
     const Tensor* beta;
     const Tensor* mask;
+
+    int batch_size;
+    int sequence_size;
+    int hidden_size;
+    bool has_segment_embedding;
+    int word_embedding_length;
+    int position_embedding_length;
+    int segment_embedding_length;
   };
 
   // TODO - docs.
