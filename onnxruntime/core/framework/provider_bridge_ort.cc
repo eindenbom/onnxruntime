@@ -46,7 +46,8 @@
 
 #ifndef DISABLE_CONTRIB_OPS
 #include "contrib_ops/cpu/bert/bias_gelu_helper.h"
-#include "contrib_ops/cpu/bert/embed_layer_norm_helper.h"
+// TODO(kreeger): fix this?
+//#include "contrib_ops/cpu/bert/embed_layer_norm_helper.h"
 #include "contrib_ops/cpu/bert/longformer_attention_base.h"
 namespace onnxruntime {
 namespace contrib {

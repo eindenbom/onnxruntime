@@ -19,7 +19,7 @@ class QEmbedLayerNorm final : public EmbedLayerNorm<T> {
 
 private:
   // Ergonomic class for holding all the various inputs for QEmbedLayerNorm:
- class QInputs : public Inputs {
+ class QInputs : public EmbedLayerNorm<T>::Inputs {
   public:
    explicit QInputs(const Tensor* input_ids,
                     const Tensor* segment_ids,
