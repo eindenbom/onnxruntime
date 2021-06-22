@@ -43,7 +43,7 @@ REGISTER_KERNEL_TYPED(float)
 
 template <typename T>
 QEmbedLayerNorm<T>::QEmbedLayerNorm(const OpKernelInfo& op_kernel_info)
-    : EmbedLayerNorm(op_kernel_info) {
+    : EmbedLayerNorm<T>(op_kernel_info) {
 }
 
 template <typename T>
@@ -65,7 +65,7 @@ QEmbedLayerNorm<T>::QInputs::QInputs(const Tensor* input_ids,
                                      const Tensor* gamma_zero_point,
                                      const Tensor* beta_zero_point,
                                      const Tensor* mask)
-    : Inputs(input_ids,
+    : EmbedLayerNorm<T>::Inputs(input_ids,
              segment_ids,
              word_embedding,
              position_embedding,
@@ -177,7 +177,7 @@ Status QEmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context, const QInpu
 
   float layer_norm_bias_scale = *(inputs.beta_scale->template Data<float>());
   uint8_t layer_norm_bias_zero_point = *(inputs.beta_zero_point->template Data<uint8_t>());
-  
+
   /*
   Output Tensors List:
   [0] layernorm_out (T)
@@ -268,7 +268,7 @@ Status QEmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context, const QInpu
         sum += a * a;
       }
 
-      T e = sqrt(sum / hidden_size + static_cast<T>(epsilon_));
+      T e = sqrt(sum / hidden_size + static_cast<T>(EmbedLayerNorm<T>::epsilon_));
       for (int i = 0; i < hidden_size; i++) {
         T cur_gamma = Dequantize(gamma_data[i],
                                   layer_norm_weights_scale,

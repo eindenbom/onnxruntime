@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <stdint.h>
 #include <vector>
 
 namespace onnxruntime {
@@ -50,6 +51,9 @@ class OpData {
       , has_segment(has_segment) 
   {}
 
+  const int batch_size;
+  const int sequence_size;
+  const int hidden_size;
   const std::vector<int32_t> input_ids_data;
   const std::vector<int32_t> segment_ids_data;
   const std::vector<int32_t> mask_data;
@@ -60,12 +64,7 @@ class OpData {
   const std::vector<float> beta_data;
   const std::vector<float> output_data;
   const std::vector<int32_t> mask_index_data;
-
   const float epsilon;
-  const int batch_size;
-  const int sequence_size;
-  const int hidden_size;
-
   const bool has_mask = true;
   const bool has_segment = true;
 };
