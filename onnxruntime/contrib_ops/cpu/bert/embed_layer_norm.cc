@@ -121,6 +121,9 @@ Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
   const T* beta_data = inputs.beta->template Data<T>();
   T* output_data = output->template MutableData<T>();
 
+  // One option - add virtual methods and call with a flag set on this base class.
+  // TODO - figure out this template type stuff - might work with the fixes I made in Linux...
+
   // Calculate output
   {
     std::atomic_bool failed{false};
@@ -149,11 +152,11 @@ Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
       }
 
       T* y = output_data + index * hidden_size;
-      const T* input_word_embedding = word_embedding_data + word_col_index * hidden_size;
+      const T* input_word_embedding = word_embedding_data + (static_cast<int64_t>(word_col_index) * hidden_size);
       const T* input_position_embedding =
-          position_embedding_data + position_col_index * hidden_size;
+          position_embedding_data + (static_cast<int64_t>(position_col_index) * hidden_size);
       const T* input_segment_embedding =
-          (inputs.has_segment_embedding) ? segment_embedding_data + segment_col_index * hidden_size : nullptr;
+          (inputs.has_segment_embedding) ? segment_embedding_data + (static_cast<int64_t>(segment_col_index) * hidden_size) : nullptr;
 
       T sum = static_cast<T>(0);
       for (int i = 0; i < hidden_size; i++) {
@@ -186,11 +189,12 @@ Status EmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context,
 
   // Calculate mask
   if (nullptr != inputs.mask) {
+    int sequence_size = inputs.sequence_size;
     const int32_t* mask_data = inputs.mask->template Data<int32_t>();
     for (int b = 0; b < inputs.batch_size; b++) {
       mask_index->template MutableData<int32_t>()[b] =
-          static_cast<int32_t>(std::count_if(mask_data + (b * inputs.sequence_size),
-                                             mask_data + (b * inputs.sequence_size) + inputs.sequence_size,
+          static_cast<int32_t>(std::count_if(mask_data + (static_cast<int64_t>(b) * sequence_size),
+                                             mask_data + (static_cast<int64_t>(b) * sequence_size) + sequence_size,
                                              [](int v) { return v == 1; }));
     }
   } else {

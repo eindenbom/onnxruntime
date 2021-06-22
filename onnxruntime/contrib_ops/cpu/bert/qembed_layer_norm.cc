@@ -143,20 +143,17 @@ Status QEmbedLayerNorm<T>::CheckInputs(const QInputs& inputs) const {
 
 template <typename T>
 Status QEmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context, const QInputs& inputs) const {
-  // Determine shapes
-  const auto& input_dims = inputs.input_ids->Shape().GetDims();
-  int64_t hidden_size = inputs.word_embedding->Shape()[1];
+  const int32_t* input_ids_data = inputs.input_ids->template Data<int32_t>();
+  const int32_t* segment_ids_data =
+    inputs.has_segment_embedding ? inputs.segment_ids->template Data<int32_t>() : nullptr;
 
-  int batch_size = static_cast<int>(input_dims[0]);
-  int sequence_length = static_cast<int>(input_dims[1]);
-
-  // Segment inputs are optional and nullptr if this model is distill-bert:
-  bool has_segment_embedding = inputs.segment_embedding != nullptr;
-
-  int word_embedding_length = static_cast<int>(inputs.word_embedding->Shape()[0]);
-  int position_embedding_length = static_cast<int>(inputs.position_embedding->Shape()[0]);
-  int segment_embedding_length =
-      has_segment_embedding ? static_cast<int>(inputs.segment_embedding->Shape()[0]) : 0;
+  int batch_size = inputs.batch_size;
+  int hidden_size = inputs.hidden_size;
+  int sequence_length = inputs.sequence_size; /// XXX
+  int word_embedding_length = inputs.word_embedding_length;
+  int position_embedding_length = inputs.position_embedding_length;
+  int segment_embedding_length = inputs.segment_embedding_length;
+  bool has_segment_embedding = inputs.has_segment_embedding;
 
   // Grab quantization values:
   float word_embedding_scale = *(inputs.word_embedding_scale->template Data<float>());
@@ -178,21 +175,14 @@ Status QEmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context, const QInpu
   float layer_norm_bias_scale = *(inputs.beta_scale->template Data<float>());
   uint8_t layer_norm_bias_zero_point = *(inputs.beta_zero_point->template Data<uint8_t>());
 
-  /*
-  Output Tensors List:
-  [0] layernorm_out (T)
-  [1] mask_index_out (int32)
-  */
-  TensorShape output_shape({input_dims[0], input_dims[1], hidden_size});
+  // Request outputs:
+  TensorShape output_shape({inputs.batch_size, inputs.sequence_size, inputs.hidden_size});
   Tensor* output = context->Output(0, output_shape);
 
-  TensorShape mask_index_shape({input_dims[0]});
+  TensorShape mask_index_shape({inputs.batch_size});
   Tensor* mask_index = context->Output(1, mask_index_shape);
 
   // Grab pointers to buffers each Tensor represents:
-  const int32_t* input_ids_data = inputs.input_ids->template Data<int32_t>();
-  const int32_t* segment_ids_data =
-      has_segment_embedding ? inputs.segment_ids->template Data<int32_t>() : nullptr;
   const uint8_t* word_embedding_data = inputs.word_embedding->template Data<uint8_t>();
   const uint8_t* position_embedding_data = inputs.position_embedding->template Data<uint8_t>();
   const uint8_t* segment_embedding_data =
@@ -231,12 +221,12 @@ Status QEmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context, const QInpu
       }
 
       // Grab inputs for the embeddings for the current batch index:
-      const uint8_t* input_word_embedding = word_embedding_data + (word_col_index * hidden_size);
+      const uint8_t* input_word_embedding = word_embedding_data + (static_cast<int64_t>(word_col_index) * hidden_size);
       const uint8_t* input_position_embedding =
-          position_embedding_data + (position_col_index * hidden_size);
+          position_embedding_data + (static_cast<int64_t>(position_col_index) * hidden_size);
       const uint8_t* input_segment_embedding = nullptr;
       if (segment_embedding_data != nullptr) {
-        input_segment_embedding = segment_embedding_data + (segment_col_index * hidden_size);
+        input_segment_embedding = segment_embedding_data + (static_cast<int64_t>(segment_col_index) * hidden_size);
       }
 
       T* output = output_data + (index * hidden_size);
@@ -289,10 +279,9 @@ Status QEmbedLayerNorm<T>::ComputeInternal(OpKernelContext* context, const QInpu
   if (nullptr != inputs.mask) {
     const int32_t* mask_data = inputs.mask->template Data<int32_t>();
     for (int b = 0; b < batch_size; b++) {
-      // TODO(kreeger): Fix static cast warning here:
       mask_index->template MutableData<int32_t>()[b] =
-          static_cast<int32_t>(std::count_if(mask_data + (b * sequence_length),
-                                             mask_data + (b * sequence_length) + sequence_length,
+          static_cast<int32_t>(std::count_if(mask_data + (static_cast<int64_t>(b) * sequence_length),
+                                             mask_data + (static_cast<int64_t>(b) * sequence_length) + sequence_length,
                                              [](int v) { return v == 1; }));
     }
   } else {
