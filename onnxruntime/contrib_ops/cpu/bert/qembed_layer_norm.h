@@ -18,7 +18,7 @@ class QEmbedLayerNorm final : public EmbedLayerNorm<T> {
   Status Compute(OpKernelContext* context) const override;
 
 private:
-  // Ergonomic class for holding all the various inputs for EmbedLayerNorm:
+  // Ergonomic class for holding all the various inputs for QEmbedLayerNorm:
  class QInputs : public Inputs {
   public:
    explicit QInputs(const Tensor* input_ids,
